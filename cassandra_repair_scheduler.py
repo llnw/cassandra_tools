@@ -229,7 +229,7 @@ class CqlWrapper(object):
         self.query_or_die(self.MUTEX_START, "Starting MUTEX",
                           nodename=self.nodename,
                           data_center=self.data_center,
-                          ttl=self.option_group.ttl)
+                          ttl=self.option_group.ttl_repair)
         # Totally arbitrary delay here, because I don't trust C*.
         logging.debug('Five second pause here')
         time.sleep(5)
@@ -246,7 +246,8 @@ class CqlWrapper(object):
         then remove the MUTEX."""
         self.query_or_die(self.REPAIR_START,
                           "Starting Repair", nodename=self.nodename,
-                          data_center=self.data_center, ttl=self.option_group.ttl)
+                          data_center=self.data_center,
+                          ttl=self.option_group.ttl_repair)
         self.query_or_die(self.MUTEX_CLEANUP,
                           "Dropping MUTEX record",
                           nodename=self.nodename,
@@ -262,16 +263,19 @@ class CqlWrapper(object):
                "--dry-run"]     # So we get a list of commands to run.
         if self.option_group.local:
             cmd.append("--local")
+	if self.option_group.parallel:
+	    cmd.append("-p")
         logging.debug("geting repair steps, this may take a while")
-        repair_steps = subprocess.check_output(cmd).split('\n')
+        repair_steps = subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,).communicate()[0].split('\n')
         for line in repair_steps:
             if not line:
                 continue
             step, repair_command = line.split(" ", 1)
             try:
                 self.query(self.REPAIR_UPDATE, nodename=self.nodename,
-                           newstatus=step, data_center=self.data_center,
-                           ttl=self.option_group.ttl)
+                           newstatus=step,
+                           data_center=self.data_center,
+                           ttl=self.option_group.ttl_repair)
             except:
                 logging.warning("Failed to update repair status, continuing anyway")
             self.close()        # Individual repairs may be slow
@@ -279,7 +283,8 @@ class CqlWrapper(object):
             subprocess.call(repair_command, shell=True)
         try:
             self.query(self.REPAIR_UPDATE, nodename=self.nodename,
-                       ttl=self.option_group.ttl, data_center=self.data_center,
+                       ttl=self.option_group.ttl,
+                       data_center=self.data_center,
                        newstatus=COMPLETED)
         except:
             logging.warning("Failed to update repair status, continuing anyway")
@@ -463,6 +468,8 @@ def cli_parsing():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", action='store_true',
                         default=False, help="Verbose output")
+    parser.add_argument("--parallel", action='store_true',
+                        default=False, help="Use parallel repair")
     parser.add_argument("-d", "--debug", action='store_true',
                         default=False, help="Debugging output")
     parser.add_argument("--syslog", metavar="FACILITY",
@@ -479,6 +486,8 @@ def cli_parsing():
                         help="Password. (prompt if user provided but not password)")
     parser.add_argument("-t", "--ttl", default=3600 * 24 * 20, type=int,
                         help="TTL (default: %(default)d)")
+    parser.add_argument("-tr", "--ttl_repair", type=int,
+                        help="TTL for REPAIR operation (default: %(default)d)")
     parser.add_argument("-k", "--keyspace", default="operations",
                         help="Keyspace to use (default: %(default)s)")
     parser.add_argument("--cqlversion", default="3.0.5",
@@ -493,12 +502,12 @@ def cli_parsing():
     parser.add_argument("--reset", action="store_true", default=False,
                         help="Reset the repair status for the host")
     options = parser.parse_args()
+    options.ttl_repair = options.ttl_repair if options.ttl_repair else options.ttl
     setup_logging(options)
     if options.username and not options.password:
         options.password = getpass.getpass(
             'Password for %s: ' % options.username)
     return options
-
 
 def main():
     """Main entry point.  Runs the actual program here."""
