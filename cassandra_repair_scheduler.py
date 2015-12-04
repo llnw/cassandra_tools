@@ -263,8 +263,10 @@ class CqlWrapper(object):
                "--dry-run"]     # So we get a list of commands to run.
         if self.option_group.local:
             cmd.append("--local")
-	if self.option_group.parallel:
-	    cmd.append("-p")
+        if self.option_group.steps:
+            cmd.append("-s %d" % self.option_group.steps)
+        if self.option_group.parallel:
+            cmd.append("-p")
         logging.debug("geting repair steps, this may take a while")
         repair_steps = subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,).communicate()[0].split('\n')
         for line in repair_steps:
@@ -488,6 +490,8 @@ def cli_parsing():
                         help="TTL (default: %(default)d)")
     parser.add_argument("-tr", "--ttl_repair", type=int,
                         help="TTL for REPAIR operation (default: %(default)d)")
+    parser.add_argument("-s", "--steps", type=int,
+                        help="Number of discrete ranges")
     parser.add_argument("-k", "--keyspace", default="operations",
                         help="Keyspace to use (default: %(default)s)")
     parser.add_argument("--cqlversion", default="3.0.5",
